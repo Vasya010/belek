@@ -33,12 +33,11 @@ const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e
 
 
 app.use(cors({
-  origin: 'https://belekned.ru', // Explicitly allow your frontend origin
+  origin: ['https://belekned.ru', 'https://beleknedkg.ru'], // Allow multiple frontend origins
   credentials: true, // Allow credentials (cookies, authorization headers)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
-
 
 // JSON Middleware
 app.use(express.json());
