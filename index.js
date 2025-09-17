@@ -89,10 +89,10 @@ const upload = multer({
 
 // MySQL Connection Pool
 const dbConfig = {
-  host: process.env.DB_HOST || "vh446.timeweb.ru",
-  user: process.env.DB_USER || "cz45780_kururtne",
+  host: process.env.DB_HOST || "vh454.timeweb.ru",
+  user: process.env.DB_USER || "cs07791_siat",
   password: process.env.DB_PASSWORD || "Vasya11091109",
-  database: process.env.DB_NAME || "cz45780_kururtne",
+  database: process.env.DB_NAME || "cs07791_siat",
   port: process.env.DB_PORT || 3306,
   connectionLimit: 10,
 };
