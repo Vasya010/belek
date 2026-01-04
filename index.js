@@ -1986,6 +1986,89 @@ app.delete("/api/properties/:id", authenticate, async (req, res) => {
   }
 });
 
+// Get Single Property by ID (Protected, with role-based access)
+// ВАЖНО: Этот роут должен быть зарегистрирован ПЕРЕД /api/properties, чтобы Express правильно обрабатывал запросы
+app.get("/api/properties/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+  
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ error: "ID объекта должен быть числом" });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      `SELECT p.*, CONCAT(u.first_name, ' ', u.last_name) AS curator_name
+       FROM properties p
+       LEFT JOIN users1 u ON p.curator_id = u.id
+       WHERE p.id = ?`,
+      [parseInt(id)]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Объект недвижимости не найден" });
+    }
+
+    const row = rows[0];
+    
+    // Проверка прав доступа для реалторов
+    if (req.user.role === "REALTOR" && row.curator_id && row.curator_id !== req.user.id) {
+      // Реалтор может видеть только основную информацию о чужой недвижимости
+      // Конфиденциальная информация будет скрыта на фронтенде
+    }
+
+    let parsedPhotos = [];
+    if (row.photos) {
+      try {
+        parsedPhotos = JSON.parse(row.photos) || [];
+      } catch (error) {
+        console.warn(`Error parsing photos for ID: ${row.id}:`, error.message);
+        parsedPhotos = [];
+      }
+    }
+
+    const property = {
+      id: row.id,
+      type_id: row.type_id || null,
+      repair: row.repair || null,
+      series: row.series || null,
+      zhk_id: row.zhk_id || null,
+      price: row.price || null,
+      rukprice: row.rukprice || null,
+      mkv: row.mkv || null,
+      rooms: row.rooms || null,
+      district_id: row.district_id || null,
+      subdistrict_id: row.subdistrict_id || null,
+      address: row.address || null,
+      description: row.description || null,
+      notes: row.notes || null,
+      status: row.status || null,
+      etaj: row.etaj || null,
+      etajnost: row.etajnost || null,
+      photos: parsedPhotos.map(img => `https://s3.twcstorage.ru/${bucketName}/${img}`),
+      document: row.document ? `https://s3.twcstorage.ru/${bucketName}/${row.document}` : null,
+      owner_name: row.owner_name || null,
+      owner_phone: row.owner_phone || null,
+      curator_id: row.curator_id || null,
+      curator_name: row.curator_name || null,
+      phone: row.phone || null,
+      date: new Date(row.created_at).toLocaleDateString("ru-RU"),
+      time: new Date(row.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    res.json(property);
+  } catch (error) {
+    console.error("Error retrieving property:", {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: `Внутренняя ошибка сервера: ${error.message}` });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
 // Get All Properties (Protected)
 app.get("/api/properties", authenticate, async (req, res) => {
   let connection;
