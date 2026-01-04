@@ -51,7 +51,7 @@ const smtpTransporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
   },
-  // Опционально, для отладки (потом убери)
+  // Опционально, для отладки (потом убери)11
   logger: true,
   debug: true
 });
