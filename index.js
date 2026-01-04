@@ -41,27 +41,62 @@ const smtpTransporter = nodemailer.createTransport({
     user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
     pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
   },
-  connectionTimeout: 10000, // 10 секунд на подключение
-  greetingTimeout: 5000, // 5 секунд на приветствие
-  socketTimeout: 15000, // 15 секунд общий таймаут
+  connectionTimeout: 60000, // 60 секунд на подключение (увеличено для продакшена)
+  greetingTimeout: 30000, // 30 секунд на приветствие
+  socketTimeout: 60000, // 60 секунд общий таймаут
   pool: true, // использовать пул соединений
   maxConnections: 1,
   maxMessages: 3,
+  rateDelta: 1000, // минимальная задержка между сообщениями
+  rateLimit: 5, // максимум сообщений в секунду
   logger: true, // включить логирование
-  debug: false // отключить отладочный вывод
-});
-
-// Проверка подключения к SMTP
-smtpTransporter.verify(function(error, success) {
-  if (error) {
-    console.error('SMTP connection error:', error);
-  } else {
-    console.log('SMTP server is ready to send messages');
+  debug: false, // отключить отладочный вывод
+  tls: {
+    rejectUnauthorized: false // разрешить самоподписанные сертификаты (для некоторых сетей)
   }
 });
 
+// Проверка подключения к SMTP (асинхронно, не блокирует запуск)
+setTimeout(() => {
+  smtpTransporter.verify(function(error, success) {
+    if (error) {
+      console.warn('SMTP connection verification failed (will retry on first send):', error.message);
+    } else {
+      console.log('SMTP server is ready to send messages');
+    }
+  });
+}, 5000); // Проверка через 5 секунд после запуска
+
 // Store verification codes (in production, use Redis or database)
 const verificationCodes = new Map();
+
+// Функция для отправки email с retry логикой
+async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 5000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const info = await smtpTransporter.sendMail(mailOptions);
+      console.log(`Email sent successfully on attempt ${attempt}:`, info.messageId);
+      return info;
+    } catch (error) {
+      console.error(`Email send attempt ${attempt} failed:`, error.message);
+      
+      // Если это последняя попытка, выбрасываем ошибку
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      
+      // Если ошибка не связана с таймаутом, не повторяем
+      if (error.code !== 'ETIMEDOUT' && error.code !== 'ECONNRESET' && error.code !== 'ESOCKET') {
+        throw error;
+      }
+      
+      // Ждем перед следующей попыткой
+      console.log(`Retrying email send in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= 1.5; // Увеличиваем задержку с каждой попыткой
+    }
+  }
+}
 
 app.use(cors({
   origin: [
@@ -470,11 +505,11 @@ app.post("/api/password/send-code", async (req, res) => {
       email: email
     });
 
-    // Отправляем email в фоне
-    smtpTransporter.sendMail(mailOptions).then((info) => {
+    // Отправляем email в фоне с retry логикой
+    sendEmailWithRetry(mailOptions).then((info) => {
       console.log('Email sent successfully:', info.messageId);
     }).catch((error) => {
-      console.error('Error sending email:', error);
+      console.error('Error sending email after retries:', error);
       // Удаляем код, если не удалось отправить
       verificationCodes.delete(email);
     });
@@ -571,11 +606,11 @@ app.post("/api/password/verify-code", async (req, res) => {
       email: email
     });
 
-    // Отправляем email в фоне
-    smtpTransporter.sendMail(mailOptions).then((info) => {
+    // Отправляем email в фоне с retry логикой
+    sendEmailWithRetry(mailOptions).then((info) => {
       console.log('Password email sent successfully:', info.messageId);
     }).catch((error) => {
-      console.error('Error sending password email:', error);
+      console.error('Error sending password email after retries:', error);
     });
   } catch (error) {
     console.error("Verify code error:", {
@@ -628,6 +663,35 @@ app.get("/api/users", authenticate, async (req, res) => {
     );
   } catch (error) {
     console.error("Error retrieving users:", {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: `Внутренняя ошибка сервера: ${error.message}` });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Get Curators (REALTOR role users) - для выбора куратора
+app.get("/api/curators", authenticate, async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      "SELECT id, first_name, last_name, email, phone, role FROM users1 WHERE role IN ('REALTOR', 'SUPER_ADMIN', 'ADMIN')"
+    );
+
+    res.json(
+      rows.map((user) => ({
+        id: user.id,
+        name: `${user.first_name} ${user.last_name}`.trim(),
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+      }))
+    );
+  } catch (error) {
+    console.error("Error retrieving curators:", {
       message: error.message,
       stack: error.stack
     });
