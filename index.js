@@ -533,7 +533,7 @@ app.post("/api/password/send-code", async (req, res) => {
 
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
-      from: process.env.SMTP_USER, // From email address для подтверждения
+      from: process.env.SMTP_FROM_EMAIL, // From email address для подтверждения
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
@@ -641,7 +641,7 @@ app.post("/api/password/verify-code", async (req, res) => {
 
     // Отправляем новый пароль на email (используем второй SMTP аккаунт для паролей)
     const mailOptions = {
-      from: process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER, // From email address из env
+      from: process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER, // From email address для паролей
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Ваш новый пароль',
       html: `
