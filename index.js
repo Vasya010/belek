@@ -31,69 +31,111 @@ const s3Client = new S3Client({
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
 // SMTP Configuration для Gmail
+// Используем прямое подключение без пула для большей надежности
 const smtpTransporter = nodemailer.createTransport({
   service: 'gmail',
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true', // true для 465, false для других портов
+  secure: false, // false для порта 587, true для 465
   requireTLS: true, // требовать TLS
   auth: {
     user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
     pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
   },
-  connectionTimeout: 60000, // 60 секунд на подключение (увеличено для продакшена)
-  greetingTimeout: 30000, // 30 секунд на приветствие
-  socketTimeout: 60000, // 60 секунд общий таймаут
-  pool: true, // использовать пул соединений
-  maxConnections: 1,
-  maxMessages: 3,
-  rateDelta: 1000, // минимальная задержка между сообщениями
-  rateLimit: 5, // максимум сообщений в секунду
-  logger: true, // включить логирование
+  connectionTimeout: 30000, // 30 секунд на подключение
+  greetingTimeout: 10000, // 10 секунд на приветствие
+  socketTimeout: 30000, // 30 секунд общий таймаут
+  pool: false, // отключаем пул для более надежной работы
+  logger: false, // отключаем логирование nodemailer (используем свое)
   debug: false, // отключить отладочный вывод
   tls: {
-    rejectUnauthorized: false // разрешить самоподписанные сертификаты (для некоторых сетей)
-  }
+    rejectUnauthorized: true, // проверять сертификат
+    ciphers: 'SSLv3' // использовать совместимые шифры
+  },
+  // Дополнительные опции для надежности
+  ignoreTLS: false,
+  name: 'belek-ned-server' // имя сервера для идентификации
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
-setTimeout(() => {
-  smtpTransporter.verify(function(error, success) {
-    if (error) {
-      console.warn('SMTP connection verification failed (will retry on first send):', error.message);
-    } else {
-      console.log('SMTP server is ready to send messages');
-    }
-  });
-}, 5000); // Проверка через 5 секунд после запуска
+// Отключаем проверку при старте, так как она может вызывать проблемы с таймаутом
+// Проверка будет происходить при первой отправке
+console.log('SMTP transporter configured. Connection will be verified on first email send.');
 
 // Store verification codes (in production, use Redis or database)
 const verificationCodes = new Map();
 
 // Функция для отправки email с retry логикой
-async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 5000) {
+async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let transporter = null;
     try {
-      const info = await smtpTransporter.sendMail(mailOptions);
+      // Создаем новый транспортер для каждой попытки
+      transporter = nodemailer.createTransport({
+        service: 'gmail',
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: false, // false для порта 587
+        requireTLS: true,
+        auth: {
+          user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
+          pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz'
+        },
+        connectionTimeout: 20000, // 20 секунд на подключение
+        greetingTimeout: 10000, // 10 секунд на приветствие
+        socketTimeout: 20000, // 20 секунд общий таймаут
+        pool: false, // отключаем пул
+        logger: false,
+        debug: false,
+        tls: {
+          rejectUnauthorized: true
+        },
+        ignoreTLS: false,
+        name: 'belek-ned-server'
+      });
+      
+      console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
+      
+      const info = await transporter.sendMail(mailOptions);
       console.log(`Email sent successfully on attempt ${attempt}:`, info.messageId);
+      
+      // Закрываем транспортер
+      if (transporter.close) {
+        transporter.close();
+      }
+      
       return info;
     } catch (error) {
       console.error(`Email send attempt ${attempt} failed:`, error.message);
+      if (error.code) {
+        console.error(`Error code: ${error.code}`);
+      }
+      
+      // Закрываем транспортер при ошибке
+      if (transporter && transporter.close) {
+        try {
+          transporter.close();
+        } catch (closeError) {
+          // Игнорируем ошибки закрытия
+        }
+      }
       
       // Если это последняя попытка, выбрасываем ошибку
       if (attempt === maxRetries) {
         throw error;
       }
       
-      // Если ошибка не связана с таймаутом, не повторяем
-      if (error.code !== 'ETIMEDOUT' && error.code !== 'ECONNRESET' && error.code !== 'ESOCKET') {
+      // Если ошибка не связана с таймаутом/подключением, не повторяем
+      const retryableErrors = ['ETIMEDOUT', 'ECONNRESET', 'ESOCKET', 'ENOTFOUND', 'ECONNREFUSED'];
+      if (error.code && !retryableErrors.includes(error.code)) {
+        console.error('Non-retryable error:', error.code);
         throw error;
       }
       
-      // Ждем перед следующей попыткой
-      console.log(`Retrying email send in ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= 1.5; // Увеличиваем задержку с каждой попыткой
+      // Ждем перед следующей попыткой с экспоненциальной задержкой
+      const waitTime = delay * Math.pow(1.5, attempt - 1);
+      console.log(`Retrying email send in ${Math.round(waitTime)}ms... (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
 }
