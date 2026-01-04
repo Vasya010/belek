@@ -5,6 +5,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const nodemailer = require("nodemailer");
 const path = require("path");
 require("dotenv").config();
 
@@ -29,11 +30,20 @@ const s3Client = new S3Client({
 
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
+// SMTP Configuration
+const smtpTransporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'vasyakuzmenkoproger@gmail.com',
+    pass: 'eejcgtevogovntnz' // Пароль для восстановления
+  }
+});
 
-
+// Store verification codes (in production, use Redis or database)
+const verificationCodes = new Map();
 
 app.use(cors({
-  origin: ['https://belekned.ru', 'https://beleknedkg.ru'], // Allow multiple frontend origins
+  origin: ['https://belekned.ru', 'https://beleknedkg.ru', 'http://localhost:3000', 'http://localhost:5173'], // Allow multiple frontend origins
   credentials: true, // Allow credentials (cookies, authorization headers)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -355,6 +365,178 @@ app.post("/api/admin/login", async (req, res) => {
     res.json({ message: "Авторизация успешна", user: userResponse, token });
   } catch (error) {
     console.error("Login error:", {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: `Внутренняя ошибка сервера: ${error.message}` });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Send Password Reset Code Endpoint
+app.post("/api/password/send-code", async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ error: "Email обязателен" });
+  }
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      "SELECT id, email, first_name FROM users1 WHERE email = ?",
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Пользователь с таким email не найден" });
+    }
+
+    // Генерируем 6-значный код
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 минут
+
+    // Сохраняем код
+    verificationCodes.set(email, {
+      code: verificationCode,
+      expiresAt: expiresAt
+    });
+
+    // Отправляем код на email
+    const mailOptions = {
+      from: 'vasyakuzmenkoproger@gmail.com',
+      to: email,
+      subject: 'Belek ned - Код для восстановления пароля',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+          <div style="background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h2 style="color: #0ea5e9; margin-top: 0;">Belek ned</h2>
+            <h3 style="color: #1f2937;">Восстановление пароля</h3>
+            <p style="color: #4b5563; line-height: 1.6;">
+              Здравствуйте, ${rows[0].first_name || 'пользователь'}!
+            </p>
+            <p style="color: #4b5563; line-height: 1.6;">
+              Вы запросили восстановление пароля. Используйте следующий код для подтверждения:
+            </p>
+            <div style="background-color: #eff6ff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+              <div style="font-size: 32px; font-weight: bold; color: #0ea5e9; letter-spacing: 8px; font-family: monospace;">
+                ${verificationCode}
+              </div>
+            </div>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+              Этот код действителен в течение 10 минут.
+            </p>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 10px;">
+              Если вы не запрашивали восстановление пароля, проигнорируйте это письмо.
+            </p>
+          </div>
+        </div>
+      `
+    };
+
+    await smtpTransporter.sendMail(mailOptions);
+
+    res.json({ 
+      message: "Код отправлен на ваш email",
+      email: email
+    });
+  } catch (error) {
+    console.error("Send code error:", {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: `Ошибка отправки кода: ${error.message}` });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+// Verify Code and Reset Password Endpoint
+app.post("/api/password/verify-code", async (req, res) => {
+  const { email, code } = req.body;
+  
+  if (!email || !code) {
+    return res.status(400).json({ error: "Email и код обязательны" });
+  }
+
+  let connection;
+  try {
+    // Проверяем код
+    const storedData = verificationCodes.get(email);
+    
+    if (!storedData) {
+      return res.status(400).json({ error: "Код не найден или истек. Запросите новый код." });
+    }
+
+    if (Date.now() > storedData.expiresAt) {
+      verificationCodes.delete(email);
+      return res.status(400).json({ error: "Код истек. Запросите новый код." });
+    }
+
+    if (storedData.code !== code) {
+      return res.status(401).json({ error: "Неверный код" });
+    }
+
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      "SELECT id, email FROM users1 WHERE email = ?",
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+
+    // Генерируем новый пароль
+    const newPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Обновляем пароль в базе данных
+    await connection.execute(
+      "UPDATE users1 SET password = ? WHERE email = ?",
+      [hashedPassword, email]
+    );
+
+    // Удаляем использованный код
+    verificationCodes.delete(email);
+
+    // Отправляем новый пароль на email
+    const mailOptions = {
+      from: 'vasyakuzmenkoproger@gmail.com',
+      to: email,
+      subject: 'Belek ned - Ваш новый пароль',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+          <div style="background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h2 style="color: #0ea5e9; margin-top: 0;">Belek ned</h2>
+            <h3 style="color: #1f2937;">Пароль успешно восстановлен</h3>
+            <p style="color: #4b5563; line-height: 1.6;">
+              Ваш новый пароль:
+            </p>
+            <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+              <div style="font-size: 24px; font-weight: bold; color: #92400e; font-family: monospace; word-break: break-all;">
+                ${newPassword}
+              </div>
+            </div>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+              <strong>Важно:</strong> Сохраните этот пароль в безопасном месте. 
+              Вы сможете изменить его после входа в систему.
+            </p>
+          </div>
+        </div>
+      `
+    };
+
+    await smtpTransporter.sendMail(mailOptions);
+
+    res.json({ 
+      message: "Пароль успешно восстановлен. Новый пароль отправлен на ваш email.",
+      email: email
+    });
+  } catch (error) {
+    console.error("Verify code error:", {
       message: error.message,
       stack: error.stack
     });
