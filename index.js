@@ -31,9 +31,16 @@ const s3Client = new S3Client({
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
 // SMTP Configuration для Gmail
-// Порт 587 для TLS (рекомендуется), порт 465 для SSL
+// ВАЖНО: Используйте порт 587 с TLS (SMTP_SECURE=false), а не 465 с SSL
+// Порт 465 часто блокируется файрволами и провайдерами
+// Порт 587 для TLS (рекомендуется), порт 465 для SSL (может быть заблокирован)
 const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
 const smtpSecure = process.env.SMTP_SECURE === 'true';
+
+// Предупреждение, если используется порт 465
+if (smtpPort === 465) {
+  console.warn('⚠️  WARNING: Port 465 (SSL) may be blocked by firewalls. Consider using port 587 (TLS) instead.');
+}
 
 const smtpTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -44,20 +51,24 @@ const smtpTransporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
   },
-  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 секунд
-  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 15000, // 15 секунд
-  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 секунд
+  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 60000, // 60 секунд (увеличено)
+  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 секунд (увеличено)
+  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 60000, // 60 секунд (увеличено)
   pool: false, // отключаем пул для более надежной работы
   logger: false, // отключаем логирование nodemailer (используем свое)
   debug: false, // отключить отладочный вывод
   // Дополнительные опции для надежности и безопасности
-  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 10000, // 10 секунд для DNS
+  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 20000, // 20 секунд для DNS (увеличено)
   socketInitialDelay: 0, // без задержки при создании сокета
   // TLS опции для безопасности
   tls: {
     rejectUnauthorized: true, // проверять сертификат
-    minVersion: 'TLSv1.2' // минимальная версия TLS
-  }
+    minVersion: 'TLSv1.2', // минимальная версия TLS
+    ciphers: 'SSLv3' // разрешить старые шифры для совместимости
+  },
+  // Увеличиваем лимиты для медленных соединений
+  maxConnections: 1,
+  maxMessages: 1
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
@@ -100,20 +111,25 @@ async function sendEmailWithRetryInternal(mailOptions, maxRetries = 5, delay = 2
           user: smtpUser,
           pass: smtpPassword
         },
-        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 секунд
-        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 15000, // 15 секунд
-        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 секунд
+        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 60000, // 60 секунд (увеличено)
+        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 секунд (увеличено)
+        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 60000, // 60 секунд (увеличено)
         pool: false, // отключаем пул
         logger: false,
         debug: false,
         // Дополнительные опции для надежности и безопасности
-        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 10000, // 10 секунд для DNS
+        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 20000, // 20 секунд для DNS (увеличено)
         socketInitialDelay: 0, // без задержки при создании сокета
         // TLS опции для безопасности
         tls: {
           rejectUnauthorized: true, // проверять сертификат
           minVersion: 'TLSv1.2' // минимальная версия TLS
-        }
+        },
+        // Дополнительные опции для обхода блокировок
+        ignoreTLS: false,
+        // Увеличиваем лимиты для медленных соединений
+        maxConnections: 1,
+        maxMessages: 1
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
