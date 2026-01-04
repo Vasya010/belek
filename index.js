@@ -31,19 +31,24 @@ const s3Client = new S3Client({
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
 // SMTP Configuration для Gmail
-// Используем прямое подключение без пула для большей надежности
+// Используем порт 465 с SSL
 const smtpTransporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // true для порта 465 (SSL)
   auth: {
-    user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
+    user: 'vasyakuzmenkoproger@gmail.com',
     pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk' // Пароль от Gmail аккаунта (App Password)
   },
-  connectionTimeout: 15000, // 15 секунд на подключение
+  connectionTimeout: 10000, // 10 секунд на подключение
   greetingTimeout: 5000, // 5 секунд на приветствие
-  socketTimeout: 15000, // 15 секунд общий таймаут
+  socketTimeout: 10000, // 10 секунд общий таймаут
   pool: false, // отключаем пул для более надежной работы
   logger: false, // отключаем логирование nodemailer (используем свое)
-  debug: false // отключить отладочный вывод
+  debug: false, // отключить отладочный вывод
+  // Дополнительные опции для надежности
+  dnsTimeout: 5000, // таймаут для DNS запросов
+  socketInitialDelay: 0 // без задержки при создании сокета
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
@@ -61,20 +66,27 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
     try {
       // Создаем новый транспортер для каждой попытки
       transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true, // true для порта 465 (SSL)
         auth: {
-          user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
+          user: 'vasyakuzmenkoproger@gmail.com',
           pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk'
         },
-        connectionTimeout: 15000, // 15 секунд на подключение
+        connectionTimeout: 10000, // 10 секунд на подключение
         greetingTimeout: 5000, // 5 секунд на приветствие
-        socketTimeout: 15000, // 15 секунд общий таймаут
+        socketTimeout: 10000, // 10 секунд общий таймаут
         pool: false, // отключаем пул
         logger: false,
-        debug: false
+        debug: false,
+        // Дополнительные опции для надежности
+        dnsTimeout: 5000, // таймаут для DNS запросов
+        socketInitialDelay: 0 // без задержки при создании сокета
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
+      console.log(`SMTP config: host=smtp.gmail.com, port=465, secure=true (SSL), user=vasyakuzmenkoproger@gmail.com`);
+      console.log(`Email to: ${mailOptions.to}`);
       
       const info = await transporter.sendMail(mailOptions);
       console.log(`Email sent successfully on attempt ${attempt}:`, info.messageId);
@@ -89,6 +101,12 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
       console.error(`Email send attempt ${attempt} failed:`, error.message);
       if (error.code) {
         console.error(`Error code: ${error.code}`);
+      }
+      if (error.response) {
+        console.error(`SMTP response:`, error.response);
+      }
+      if (error.responseCode) {
+        console.error(`SMTP response code:`, error.responseCode);
       }
       
       // Закрываем транспортер при ошибке
@@ -491,8 +509,8 @@ app.post("/api/password/send-code", async (req, res) => {
 
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
-      from: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
-      to: email,
+      from: 'vasyakuzmenkoproger@gmail.com',
+      to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
@@ -597,8 +615,8 @@ app.post("/api/password/verify-code", async (req, res) => {
 
     // Отправляем новый пароль на email
     const mailOptions = {
-      from: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
-      to: email,
+      from: 'vasyakuzmenkoproger@gmail.com',
+      to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Ваш новый пароль',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
