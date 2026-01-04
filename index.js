@@ -34,27 +34,16 @@ const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e
 // Используем прямое подключение без пула для большей надежности
 const smtpTransporter = nodemailer.createTransport({
   service: 'gmail',
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // false для порта 587, true для 465
-  requireTLS: true, // требовать TLS
   auth: {
     user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
-    pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
+    pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk' // Пароль от Gmail аккаунта (App Password)
   },
-  connectionTimeout: 30000, // 30 секунд на подключение
-  greetingTimeout: 10000, // 10 секунд на приветствие
-  socketTimeout: 30000, // 30 секунд общий таймаут
+  connectionTimeout: 15000, // 15 секунд на подключение
+  greetingTimeout: 5000, // 5 секунд на приветствие
+  socketTimeout: 15000, // 15 секунд общий таймаут
   pool: false, // отключаем пул для более надежной работы
   logger: false, // отключаем логирование nodemailer (используем свое)
-  debug: false, // отключить отладочный вывод
-  tls: {
-    rejectUnauthorized: true, // проверять сертификат
-    ciphers: 'SSLv3' // использовать совместимые шифры
-  },
-  // Дополнительные опции для надежности
-  ignoreTLS: false,
-  name: 'belek-ned-server' // имя сервера для идентификации
+  debug: false // отключить отладочный вывод
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
@@ -73,25 +62,16 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
       // Создаем новый транспортер для каждой попытки
       transporter = nodemailer.createTransport({
         service: 'gmail',
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: false, // false для порта 587
-        requireTLS: true,
         auth: {
           user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
-          pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz'
+          pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk'
         },
-        connectionTimeout: 20000, // 20 секунд на подключение
-        greetingTimeout: 10000, // 10 секунд на приветствие
-        socketTimeout: 20000, // 20 секунд общий таймаут
+        connectionTimeout: 15000, // 15 секунд на подключение
+        greetingTimeout: 5000, // 5 секунд на приветствие
+        socketTimeout: 15000, // 15 секунд общий таймаут
         pool: false, // отключаем пул
         logger: false,
-        debug: false,
-        tls: {
-          rejectUnauthorized: true
-        },
-        ignoreTLS: false,
-        name: 'belek-ned-server'
+        debug: false
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
