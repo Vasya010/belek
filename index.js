@@ -40,15 +40,20 @@ const smtpTransporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
   },
-  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT || '10000'),
-  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT || '5000'),
-  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT || '10000'),
+  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 секунд
+  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 15000, // 15 секунд
+  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 секунд
   pool: false, // отключаем пул для более надежной работы
   logger: false, // отключаем логирование nodemailer (используем свое)
   debug: false, // отключить отладочный вывод
-  // Дополнительные опции для надежности
-  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT || '5000'),
-  socketInitialDelay: 0 // без задержки при создании сокета
+  // Дополнительные опции для надежности и безопасности
+  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 10000, // 10 секунд для DNS
+  socketInitialDelay: 0, // без задержки при создании сокета
+  // TLS опции для безопасности
+  tls: {
+    rejectUnauthorized: true, // проверять сертификат
+    minVersion: 'TLSv1.2' // минимальная версия TLS
+  }
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
@@ -59,12 +64,12 @@ console.log('SMTP transporter configured. Connection will be verified on first e
 // Store verification codes (in production, use Redis or database)
 const verificationCodes = new Map();
 
-// Функция для отправки email с retry логикой
-async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
+// Функция для отправки email с retry логикой (увеличено количество попыток)
+async function sendEmailWithRetry(mailOptions, maxRetries = 5, delay = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let transporter = null;
     try {
-      // Создаем новый транспортер для каждой попытки
+      // Создаем новый транспортер для каждой попытки с улучшенными настройками
       transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT),
@@ -73,15 +78,20 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASSWORD
         },
-        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT),
-        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT),
-        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT),
+        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 секунд
+        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 15000, // 15 секунд
+        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 30000, // 30 секунд
         pool: false, // отключаем пул
         logger: false,
         debug: false,
-        // Дополнительные опции для надежности
-        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT),
-        socketInitialDelay: 0 // без задержки при создании сокета
+        // Дополнительные опции для надежности и безопасности
+        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 10000, // 10 секунд для DNS
+        socketInitialDelay: 0, // без задержки при создании сокета
+        // TLS опции для безопасности
+        tls: {
+          rejectUnauthorized: true, // проверять сертификат
+          minVersion: 'TLSv1.2' // минимальная версия TLS
+        }
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
@@ -545,13 +555,15 @@ app.post("/api/password/send-code", async (req, res) => {
       email: email
     });
 
-    // Отправляем email в фоне с retry логикой
-    sendEmailWithRetry(mailOptions).then((info) => {
-      console.log('Email sent successfully:', info.messageId);
-    }).catch((error) => {
-      console.error('Error sending email after retries:', error);
-      // Удаляем код, если не удалось отправить
-      verificationCodes.delete(email);
+    // Отправляем email в фоне с retry логикой (не блокируем ответ, используем setImmediate)
+    setImmediate(() => {
+      sendEmailWithRetry(mailOptions, 5, 2000).then((info) => {
+        console.log('Email sent successfully:', info.messageId);
+      }).catch((error) => {
+        console.error('Error sending email after retries:', error);
+        // Удаляем код, если не удалось отправить
+        verificationCodes.delete(email);
+      });
     });
   } catch (error) {
     console.error("Send code error:", {
@@ -646,11 +658,13 @@ app.post("/api/password/verify-code", async (req, res) => {
       email: email
     });
 
-    // Отправляем email в фоне с retry логикой
-    sendEmailWithRetry(mailOptions).then((info) => {
-      console.log('Password email sent successfully:', info.messageId);
-    }).catch((error) => {
-      console.error('Error sending password email after retries:', error);
+    // Отправляем email в фоне с retry логикой (не блокируем ответ)
+    setImmediate(() => {
+      sendEmailWithRetry(mailOptions, 5, 2000).then((info) => {
+        console.log('Password email sent successfully:', info.messageId);
+      }).catch((error) => {
+        console.error('Error sending password email after retries:', error);
+      });
     });
   } catch (error) {
     console.error("Verify code error:", {
