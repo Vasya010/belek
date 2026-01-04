@@ -33,13 +33,13 @@ const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e
 // SMTP Configuration для Gmail
 const smtpTransporter = nodemailer.createTransport({
   service: 'gmail',
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // true для 465, false для других портов
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true', // true для 465, false для других портов
   requireTLS: true, // требовать TLS
   auth: {
-    user: 'vasyakuzmenkoproger@gmail.com',
-    pass: 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
+    user: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
+    pass: process.env.SMTP_PASSWORD || 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
   },
   connectionTimeout: 10000, // 10 секунд на подключение
   greetingTimeout: 5000, // 5 секунд на приветствие
@@ -434,7 +434,7 @@ app.post("/api/password/send-code", async (req, res) => {
 
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
-      from: 'vasyakuzmenkoproger@gmail.com',
+      from: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
       to: email,
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
@@ -540,7 +540,7 @@ app.post("/api/password/verify-code", async (req, res) => {
 
     // Отправляем новый пароль на email
     const mailOptions = {
-      from: 'vasyakuzmenkoproger@gmail.com',
+      from: process.env.SMTP_USER || 'vasyakuzmenkoproger@gmail.com',
       to: email,
       subject: 'Belek ned - Ваш новый пароль',
       html: `
