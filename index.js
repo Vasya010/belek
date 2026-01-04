@@ -66,17 +66,31 @@ const verificationCodes = new Map();
 
 // Функция для отправки email с retry логикой (увеличено количество попыток)
 async function sendEmailWithRetry(mailOptions, maxRetries = 5, delay = 2000) {
+  return sendEmailWithRetryInternal(mailOptions, maxRetries, delay, false);
+}
+
+// Функция для отправки email с паролем (использует второй SMTP аккаунт для паролей)
+async function sendEmailWithRetryForPassword(mailOptions, maxRetries = 5, delay = 2000) {
+  return sendEmailWithRetryInternal(mailOptions, maxRetries, delay, true);
+}
+
+// Внутренняя функция для отправки email с retry логикой
+async function sendEmailWithRetryInternal(mailOptions, maxRetries = 5, delay = 2000, usePasswordAccount = false) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let transporter = null;
     try {
       // Создаем новый транспортер для каждой попытки с улучшенными настройками
+      // Используем второй аккаунт для паролей, если указано
+      const smtpUser = usePasswordAccount ? (process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER) : process.env.SMTP_USER;
+      const smtpPassword = usePasswordAccount ? (process.env.SMTP_PASSWORD_PASSWORD || process.env.SMTP_PASSWORD) : process.env.SMTP_PASSWORD;
+      
       transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT),
         secure: process.env.SMTP_SECURE === 'true', // true для порта 465 (SSL)
         auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASSWORD
+          user: smtpUser,
+          pass: smtpPassword
         },
         connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 30000, // 30 секунд
         greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 15000, // 15 секунд
@@ -95,7 +109,7 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 5, delay = 2000) {
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
-      console.log(`SMTP config: host=${process.env.SMTP_HOST}, port=${process.env.SMTP_PORT}, secure=${process.env.SMTP_SECURE}, user=${process.env.SMTP_USER}`);
+      console.log(`SMTP config: host=${process.env.SMTP_HOST}, port=${process.env.SMTP_PORT}, secure=${process.env.SMTP_SECURE}, user=${smtpUser}${usePasswordAccount ? ' (password account)' : ''}`);
       console.log(`Email to: ${mailOptions.to}`);
       
       const info = await transporter.sendMail(mailOptions);
@@ -519,7 +533,7 @@ app.post("/api/password/send-code", async (req, res) => {
 
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
-      from: process.env.SMTP_USER,
+      from: process.env.SMTP_USER, // From email address для подтверждения
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
@@ -625,9 +639,9 @@ app.post("/api/password/verify-code", async (req, res) => {
     // Удаляем использованный код
     verificationCodes.delete(email);
 
-    // Отправляем новый пароль на email
+    // Отправляем новый пароль на email (используем второй SMTP аккаунт для паролей)
     const mailOptions = {
-      from: process.env.SMTP_USER,
+      from: process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER, // From email address из env
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Ваш новый пароль',
       html: `
@@ -658,9 +672,9 @@ app.post("/api/password/verify-code", async (req, res) => {
       email: email
     });
 
-    // Отправляем email в фоне с retry логикой (не блокируем ответ)
+    // Отправляем email в фоне с retry логикой (не блокируем ответ, используем второй SMTP для паролей)
     setImmediate(() => {
-      sendEmailWithRetry(mailOptions, 5, 2000).then((info) => {
+      sendEmailWithRetryForPassword(mailOptions, 5, 2000).then((info) => {
         console.log('Password email sent successfully:', info.messageId);
       }).catch((error) => {
         console.error('Error sending password email after retries:', error);
