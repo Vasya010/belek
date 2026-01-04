@@ -43,32 +43,17 @@ if (smtpPort === 465) {
 }
 
 const smtpTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: smtpPort,
-  secure: smtpSecure, // true для порта 465 (SSL), false для 587 (TLS)
-  requireTLS: !smtpSecure, // требовать TLS для порта 587
+  secure: false, // ОБЯЗАТЕЛЬНО false для 587!
+  requireTLS: true, // заставит использовать STARTTLS
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
   },
-  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 60000, // 60 секунд (увеличено)
-  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 секунд (увеличено)
-  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 60000, // 60 секунд (увеличено)
-  pool: false, // отключаем пул для более надежной работы
-  logger: false, // отключаем логирование nodemailer (используем свое)
-  debug: false, // отключить отладочный вывод
-  // Дополнительные опции для надежности и безопасности
-  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 20000, // 20 секунд для DNS (увеличено)
-  socketInitialDelay: 0, // без задержки при создании сокета
-  // TLS опции для безопасности
-  tls: {
-    rejectUnauthorized: true, // проверять сертификат
-    minVersion: 'TLSv1.2', // минимальная версия TLS
-    ciphers: 'SSLv3' // разрешить старые шифры для совместимости
-  },
-  // Увеличиваем лимиты для медленных соединений
-  maxConnections: 1,
-  maxMessages: 1
+  // Опционально, для отладки (потом убери)
+  logger: true,
+  debug: true
 });
 
 // Проверка подключения к SMTP (асинхронно, не блокирует запуск)
@@ -100,36 +85,19 @@ async function sendEmailWithRetryInternal(mailOptions, maxRetries = 5, delay = 2
       const smtpPassword = usePasswordAccount ? (process.env.SMTP_PASSWORD_PASSWORD || process.env.SMTP_PASSWORD) : process.env.SMTP_PASSWORD;
       
       const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
-      const smtpSecure = process.env.SMTP_SECURE === 'true';
       
       transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
         port: smtpPort,
-        secure: smtpSecure, // true для порта 465 (SSL), false для 587 (TLS)
-        requireTLS: !smtpSecure, // требовать TLS для порта 587
+        secure: false, // ОБЯЗАТЕЛЬНО false для 587!
+        requireTLS: true, // заставит использовать STARTTLS
         auth: {
           user: smtpUser,
           pass: smtpPassword
         },
-        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT) || 60000, // 60 секунд (увеличено)
-        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT) || 30000, // 30 секунд (увеличено)
-        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT) || 60000, // 60 секунд (увеличено)
-        pool: false, // отключаем пул
-        logger: false,
-        debug: false,
-        // Дополнительные опции для надежности и безопасности
-        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT) || 20000, // 20 секунд для DNS (увеличено)
-        socketInitialDelay: 0, // без задержки при создании сокета
-        // TLS опции для безопасности
-        tls: {
-          rejectUnauthorized: true, // проверять сертификат
-          minVersion: 'TLSv1.2' // минимальная версия TLS
-        },
-        // Дополнительные опции для обхода блокировок
-        ignoreTLS: false,
-        // Увеличиваем лимиты для медленных соединений
-        maxConnections: 1,
-        maxMessages: 1
+        // Опционально, для отладки (потом убери)
+        logger: true,
+        debug: true
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
