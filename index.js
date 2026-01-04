@@ -33,21 +33,21 @@ const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e
 // SMTP Configuration для Gmail
 // Используем порт 465 с SSL
 const smtpTransporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // true для порта 465 (SSL)
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT),
+  secure: process.env.SMTP_SECURE === 'true', // true для порта 465 (SSL)
   auth: {
-    user: 'vasyakuzmenkoproger@gmail.com',
-    pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk' // Пароль от Gmail аккаунта (App Password)
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD
   },
-  connectionTimeout: 10000, // 10 секунд на подключение
-  greetingTimeout: 5000, // 5 секунд на приветствие
-  socketTimeout: 10000, // 10 секунд общий таймаут
+  connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT || '10000'),
+  greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT || '5000'),
+  socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT || '10000'),
   pool: false, // отключаем пул для более надежной работы
   logger: false, // отключаем логирование nodemailer (используем свое)
   debug: false, // отключить отладочный вывод
   // Дополнительные опции для надежности
-  dnsTimeout: 5000, // таймаут для DNS запросов
+  dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT || '5000'),
   socketInitialDelay: 0 // без задержки при создании сокета
 });
 
@@ -66,26 +66,26 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3, delay = 3000) {
     try {
       // Создаем новый транспортер для каждой попытки
       transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true, // true для порта 465 (SSL)
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT),
+        secure: process.env.SMTP_SECURE === 'true', // true для порта 465 (SSL)
         auth: {
-          user: 'vasyakuzmenkoproger@gmail.com',
-          pass: process.env.SMTP_PASSWORD || 'jlphisqjvpshwmk'
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASSWORD
         },
-        connectionTimeout: 10000, // 10 секунд на подключение
-        greetingTimeout: 5000, // 5 секунд на приветствие
-        socketTimeout: 10000, // 10 секунд общий таймаут
+        connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT),
+        greetingTimeout: parseInt(process.env.SMTP_GREETING_TIMEOUT),
+        socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT),
         pool: false, // отключаем пул
         logger: false,
         debug: false,
         // Дополнительные опции для надежности
-        dnsTimeout: 5000, // таймаут для DNS запросов
+        dnsTimeout: parseInt(process.env.SMTP_DNS_TIMEOUT),
         socketInitialDelay: 0 // без задержки при создании сокета
       });
       
       console.log(`Attempting to send email (attempt ${attempt}/${maxRetries})...`);
-      console.log(`SMTP config: host=smtp.gmail.com, port=465, secure=true (SSL), user=vasyakuzmenkoproger@gmail.com`);
+      console.log(`SMTP config: host=${process.env.SMTP_HOST}, port=${process.env.SMTP_PORT}, secure=${process.env.SMTP_SECURE}, user=${process.env.SMTP_USER}`);
       console.log(`Email to: ${mailOptions.to}`);
       
       const info = await transporter.sendMail(mailOptions);
@@ -509,7 +509,7 @@ app.post("/api/password/send-code", async (req, res) => {
 
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
-      from: 'vasyakuzmenkoproger@gmail.com',
+      from: process.env.SMTP_USER,
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
@@ -615,7 +615,7 @@ app.post("/api/password/verify-code", async (req, res) => {
 
     // Отправляем новый пароль на email
     const mailOptions = {
-      from: 'vasyakuzmenkoproger@gmail.com',
+      from: process.env.SMTP_USER,
       to: email, // email адрес получателя из запроса
       subject: 'Belek ned - Ваш новый пароль',
       html: `
