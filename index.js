@@ -31,11 +31,15 @@ const s3Client = new S3Client({
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
 // SMTP Configuration для Gmail
-// Используем порт 465 с SSL
+// Порт 587 для TLS (рекомендуется), порт 465 для SSL
+const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
+const smtpSecure = process.env.SMTP_SECURE === 'true';
+
 const smtpTransporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === 'true', // true для порта 465 (SSL)
+  port: smtpPort,
+  secure: smtpSecure, // true для порта 465 (SSL), false для 587 (TLS)
+  requireTLS: !smtpSecure, // требовать TLS для порта 587
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
@@ -84,10 +88,14 @@ async function sendEmailWithRetryInternal(mailOptions, maxRetries = 5, delay = 2
       const smtpUser = usePasswordAccount ? (process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER) : process.env.SMTP_USER;
       const smtpPassword = usePasswordAccount ? (process.env.SMTP_PASSWORD_PASSWORD || process.env.SMTP_PASSWORD) : process.env.SMTP_PASSWORD;
       
+      const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
+      const smtpSecure = process.env.SMTP_SECURE === 'true';
+      
       transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT),
-        secure: process.env.SMTP_SECURE === 'true', // true для порта 465 (SSL)
+        port: smtpPort,
+        secure: smtpSecure, // true для порта 465 (SSL), false для 587 (TLS)
+        requireTLS: !smtpSecure, // требовать TLS для порта 587
         auth: {
           user: smtpUser,
           pass: smtpPassword
@@ -534,7 +542,7 @@ app.post("/api/password/send-code", async (req, res) => {
     // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
       from: process.env.SMTP_FROM_EMAIL, // From email address для подтверждения
-      to: email, // email адрес получателя из запроса
+      to: email, // To email address - адрес получателя из запроса
       subject: 'Belek ned - Код для восстановления пароля',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
@@ -642,7 +650,7 @@ app.post("/api/password/verify-code", async (req, res) => {
     // Отправляем новый пароль на email (используем второй SMTP аккаунт для паролей)
     const mailOptions = {
       from: process.env.SMTP_PASSWORD_USER || process.env.SMTP_USER, // From email address для паролей
-      to: email, // email адрес получателя из запроса
+      to: email, // To email address - адрес получателя из запроса
       subject: 'Belek ned - Ваш новый пароль',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
