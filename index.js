@@ -2360,21 +2360,6 @@ app.get("/public/jk", async (req, res) => {
   }
 });
 
-// Public endpoint for JK (zhk)
-app.get("/public/jk", async (req, res) => {
-  let connection;
-  try {
-    connection = await pool.getConnection();
-    const [rows] = await connection.execute("SELECT id, name FROM jk");
-    res.json(rows);
-  } catch (error) {
-    console.error("Error fetching JK:", error);
-    res.status(500).json({ error: "Internal server error" });
-  } finally {
-    if (connection) connection.release();
-  }
-});
-
 // Public endpoint for subdistricts
 app.get("/public/subdistricts", async (req, res) => {
   const { district_id } = req.query;
@@ -2646,17 +2631,18 @@ app.patch("/api/properties/redirect", authenticate, async (req, res) => {
       return res.status(400).json({ error: "Недействительный ID куратора" });
     }
 
+    const placeholders = propertyIds.map(() => '?').join(',');
     const [existingProperties] = await connection.execute(
-      "SELECT id FROM properties WHERE id IN (?)",
-      [propertyIds]
+      `SELECT id FROM properties WHERE id IN (${placeholders})`,
+      propertyIds
     );
     if (existingProperties.length !== propertyIds.length) {
       return res.status(404).json({ error: "Некоторые объекты недвижимости не найдены" });
     }
 
     const [result] = await connection.execute(
-      "UPDATE properties SET curator_id = ? WHERE id IN (?)",
-      [finalCuratorId, propertyIds]
+      `UPDATE properties SET curator_id = ? WHERE id IN (${placeholders})`,
+      [finalCuratorId, ...propertyIds]
     );
 
     res.json({ message: "Объекты недвижимости успешно перенаправлены", affectedRows: result.affectedRows });
