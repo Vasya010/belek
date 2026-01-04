@@ -30,12 +30,33 @@ const s3Client = new S3Client({
 
 const bucketName = process.env.S3_BUCKET || "a2c31109-3cf2c97b-aca1-42b0-a822-3e0ade279447";
 
-// SMTP Configuration
+// SMTP Configuration для Gmail
 const smtpTransporter = nodemailer.createTransport({
   service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // true для 465, false для других портов
+  requireTLS: true, // требовать TLS
   auth: {
     user: 'vasyakuzmenkoproger@gmail.com',
-    pass: 'eejcgtevogovntnz' // Пароль для восстановления
+    pass: 'eejcgtevogovntnz' // Пароль от Gmail аккаунта
+  },
+  connectionTimeout: 10000, // 10 секунд на подключение
+  greetingTimeout: 5000, // 5 секунд на приветствие
+  socketTimeout: 15000, // 15 секунд общий таймаут
+  pool: true, // использовать пул соединений
+  maxConnections: 1,
+  maxMessages: 3,
+  logger: true, // включить логирование
+  debug: false // отключить отладочный вывод
+});
+
+// Проверка подключения к SMTP
+smtpTransporter.verify(function(error, success) {
+  if (error) {
+    console.error('SMTP connection error:', error);
+  } else {
+    console.log('SMTP server is ready to send messages');
   }
 });
 
@@ -43,7 +64,14 @@ const smtpTransporter = nodemailer.createTransport({
 const verificationCodes = new Map();
 
 app.use(cors({
-  origin: ['https://belekned.ru', 'https://beleknedkg.ru', 'http://localhost:3000', 'http://localhost:5173'], // Allow multiple frontend origins
+  origin: [
+    'https://belekned.ru', 
+    'https://beleknedkg.ru', 
+    'https://vasya010-belek-7b60.twc1.net',
+    'http://vasya010-belek-7b60.twc1.net',
+    'http://localhost:3000', 
+    'http://localhost:5173'
+  ], // Allow multiple frontend origins
   credentials: true, // Allow credentials (cookies, authorization headers)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -404,7 +432,7 @@ app.post("/api/password/send-code", async (req, res) => {
       expiresAt: expiresAt
     });
 
-    // Отправляем код на email
+    // Отправляем код на email (асинхронно, не блокируем ответ)
     const mailOptions = {
       from: 'vasyakuzmenkoproger@gmail.com',
       to: email,
@@ -436,11 +464,19 @@ app.post("/api/password/send-code", async (req, res) => {
       `
     };
 
-    await smtpTransporter.sendMail(mailOptions);
-
+    // Отправляем ответ сразу, а email отправляем асинхронно
     res.json({ 
       message: "Код отправлен на ваш email",
       email: email
+    });
+
+    // Отправляем email в фоне
+    smtpTransporter.sendMail(mailOptions).then((info) => {
+      console.log('Email sent successfully:', info.messageId);
+    }).catch((error) => {
+      console.error('Error sending email:', error);
+      // Удаляем код, если не удалось отправить
+      verificationCodes.delete(email);
     });
   } catch (error) {
     console.error("Send code error:", {
@@ -529,11 +565,17 @@ app.post("/api/password/verify-code", async (req, res) => {
       `
     };
 
-    await smtpTransporter.sendMail(mailOptions);
-
+    // Отправляем ответ сразу, а email отправляем асинхронно
     res.json({ 
       message: "Пароль успешно восстановлен. Новый пароль отправлен на ваш email.",
       email: email
+    });
+
+    // Отправляем email в фоне
+    smtpTransporter.sendMail(mailOptions).then((info) => {
+      console.log('Password email sent successfully:', info.messageId);
+    }).catch((error) => {
+      console.error('Error sending password email:', error);
     });
   } catch (error) {
     console.error("Verify code error:", {
